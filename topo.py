@@ -11,10 +11,10 @@ class MyTopo(Topo):
         Topo.__init__(self)
 
         # local hosts, before NAT
-        local = [self.addHost('h%d' % i) for i in range(1, 4)]
+        local = [self.addHost('h%d' % i, ip="10.0.0.%d/16" % i) for i in range(1, 4)]
 
         # remote hosts, after NAT
-        remote = [self.addHost('h%d' % i) for i in range(4, 7)]
+        remote = [self.addHost('h%d' % i, ip="10.1.0.%d/16" % (i-3)) for i in range(4, 7)]
 
         # local switch
         localSwitch = self.addSwitch('s1')
