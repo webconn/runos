@@ -52,6 +52,16 @@
     "switch-stats": {
 	"poll-interval": 1,
 	"pin-to-thread": 1
+    },
+
+    "natswitch": {
+        "switch_dpid": 2,
+        "local_subnet": "10.0.0.0/16",
+        "address_pool": [
+             "10.2.0.1",
+             "10.2.0.2",
+             "10.2.0.3"
+        ]
     }
 }
 
