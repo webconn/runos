@@ -27,6 +27,7 @@ set(SOURCES
     RestMultipart.cc
     RestFlowMod.cc
     RestStringProcessing.cc
+    Nat.cc
     # Loader
     Main.cc
     # REST

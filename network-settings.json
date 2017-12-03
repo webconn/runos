@@ -12,7 +12,8 @@
         "arp-handler",
         "flow-manager",
         "rest-multipart",
-        "rest-flowmod"
+        "rest-flowmod",
+        "natswitch"
     ],
 
     "flow-manager" : {
