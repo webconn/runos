@@ -33,8 +33,8 @@ class MyTopo(Topo):
         for h in local:
             self.addLink(h, localSwitch)
 
-        self.addLink(localSwitch, natSwitch)
-        self.addLink(natSwitch, remoteRootSwitch)
+        self.addLink(localSwitch, natSwitch, port2=1)
+        self.addLink(natSwitch, remoteRootSwitch, port1=2)
 
         self.addLink(remoteRootSwitch, remoteTopSwitch)
         self.addLink(remoteTopSwitch, remote[0])
