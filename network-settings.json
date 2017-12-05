@@ -32,8 +32,8 @@
              "link-discovery",
              "host-manager",
              "arp-handler",
-             "forwarding",
-             "natswitch"
+             "natswitch",
+             "forwarding"
          ]
     },
 
@@ -63,7 +63,9 @@
              "10.2.0.1",
              "10.2.0.2",
              "10.2.0.3"
-        ]
+        ],
+        "idle_timeout": 180,
+        "mac": "11:22:33:44:55:66"
     }
 }
 
