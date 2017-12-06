@@ -78,8 +78,11 @@ private:
         // m_input - (external) => (local)
         std::unordered_map<IpPortPair, IpPortPair> m_input, m_output;
 
+        // Cookie to external pair mapping
+        std::unordered_map<uint64_t, IpPortPair> m_cookie_to_ext;
+
         // Creates new mapping for local ip:port pair and external ip
-        IpPortPair createMapping(IpPortPair src, std::string ip_dst)
+        IpPortPair createMapping(IpPortPair src, std::string ip_dst, uint64_t cookie)
         {
                 // calculate hash to pick IP and port from pool
                 size_t h = std::hash<IpPortPair>()(src) + std::hash<std::string>()(ip_dst);
@@ -97,6 +100,9 @@ private:
                 // reserve this pair
                 m_input[result] = src;
                 m_output[src] = result;
+                m_cookie_to_ext[cookie] = result;
+
+                LOG(INFO) << "Register mapping " << src.toString() << " <=> " << result.toString() << ", cookie " << std::hex << cookie;
 
                 return result;
         }
@@ -110,7 +116,7 @@ public:
         }
 
         // Takes destination IP/port pair and returns external pair
-        IpPortPair mapToOutput(const std::string& ip_src, uint16_t tcp_src, const std::string& ip_dst, const ethaddr& mac = empty_mac)
+        IpPortPair mapToOutput(const std::string& ip_src, uint16_t tcp_src, const std::string& ip_dst, uint64_t cookie, const ethaddr& mac = empty_mac)
         {
                 IpPortPair src(ip_src, tcp_src, mac);
 
@@ -118,18 +124,18 @@ public:
                 if (m_output.find(src) != m_input.end()) {
                         return m_output[src];
                 } else {
-                        return createMapping(src, ip_dst);
+                        return createMapping(src, ip_dst, cookie);
                 }
 
                 return IpPortPair();
         }
 
-        IpPortPair mapToOutput(IPv4Addr ip_src, uint16_t tcp_src, IPv4Addr ip_dst, const ethaddr& mac = empty_mac)
+        IpPortPair mapToOutput(IPv4Addr ip_src, uint16_t tcp_src, IPv4Addr ip_dst, uint64_t cookie, const ethaddr& mac = empty_mac)
         {
                 std::stringstream ss1, ss2;
                 ss1 << ip_src;
                 ss2 << ip_dst;
-                return mapToOutput(ss1.str(), tcp_src, ss2.str(), mac);
+                return mapToOutput(ss1.str(), tcp_src, ss2.str(), cookie, mac);
         }
 
         // Takes external IP/port pair and redirects it to local ones.
@@ -153,6 +159,24 @@ public:
         }
 
         // Removes redirect rule for specific local ip+port pair
+        bool removeMapping(uint64_t cookie)
+        {
+                if (m_cookie_to_ext.find(cookie) != m_cookie_to_ext.end()) {
+                        // get external pair
+                        auto ext = m_cookie_to_ext[cookie];
+                        // get local pair also
+                        auto local = m_input[ext];
+
+                        // remove these things
+                        m_output.erase(m_output.find(local));
+                        m_input.erase(m_input.find(ext));
+                        m_cookie_to_ext.erase(m_cookie_to_ext.find(cookie));
+
+                        return true;
+                } else {
+                        return false;
+                }
+        }
 };
 
 // Timeout types
@@ -228,8 +252,11 @@ void NatSwitch::init(Loader *loader, const Config& rootConfig)
                                 // packet from local subnet
                                 LOG(INFO) << "Got PacketIn from local subnet " << ip_src << ":" << tcp_src;
 
+                                // get flow cookie
+                                uint64_t flow_cookie = flow->cookie();
+
                                 // find a mapping for it
-                                IpPortPair mapTo = nat_map->mapToOutput(ip_src, tcp_src, ip_dst, eth_src);
+                                IpPortPair mapTo = nat_map->mapToOutput(ip_src, tcp_src, ip_dst, flow_cookie, eth_src);
 
                                 LOG(INFO) << "Map it to external pair " << mapTo.toString();
 
@@ -237,6 +264,17 @@ void NatSwitch::init(Loader *loader, const Config& rootConfig)
                                 pkt.modify(oxm::eth_src() << "11:22:33:44:55:66"); //nat_mac);
                                 pkt.modify(oxm::ipv4_src() << mapTo.ip);
                                 pkt.modify(oxm::tcp_src() << mapTo.port);
+
+                                // handle flowRemoved to remove unused mappings
+                                QObject::connect(flow.get(), &Flow::stateChanged, [=](Flow::State new_state, uint64_t this_cookie) {
+                                        if (new_state == Flow::State::Idle || new_state == Flow::State::Expired) {
+                                                if (nat_map->removeMapping(this_cookie)) {
+                                                        LOG(INFO) << "Remove expired/idle flow " << std::hex << this_cookie;
+                                                } else {
+                                                        LOG(WARNING) << "Failed to remove expired/idle flow " << std::hex << this_cookie;
+                                                }
+                                        }
+                                });
 
                                 return decision
                                         .unicast(external_port)
@@ -250,13 +288,12 @@ void NatSwitch::init(Loader *loader, const Config& rootConfig)
                                 // find a mapping
                                 IpPortPair mapTo = nat_map->mapToInput(ip_dst, tcp_dst);
 
-                                // drop it if mapping is empty
+                                // drop it if mapping is empty, but don't learn this rule
                                 if (mapTo.empty()) {
                                         LOG(INFO) << "Unknown connection; drop it";
                                         return decision
                                                 .drop()
-                                                .idle_timeout(seconds(nat_idle_timeout))
-                                                .hard_timeout(seconds(nat_hard_timeout))
+                                                .idle_timeout(seconds(0))
                                                 .return_();
                                 } else {
                                         // if there's a mapping, apply it
@@ -278,9 +315,4 @@ void NatSwitch::init(Loader *loader, const Config& rootConfig)
                         return decision;
                 };
         });
-}
-
-void NatSwitch::onSwitchUp(SwitchConnectionPtr conn, of13::FeaturesReply fr)
-{
-        LOG(INFO) << "Switch appeared: " << conn->dpid();
 }
