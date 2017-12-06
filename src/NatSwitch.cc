@@ -14,6 +14,7 @@
 #include <iostream>
 #include <sstream>
 #include <functional>
+#include <chrono>
 
 REGISTER_APPLICATION(NatSwitch, {"controller", ""})
 
@@ -154,6 +155,8 @@ public:
         // Removes redirect rule for specific local ip+port pair
 };
 
+// Timeout types
+typedef std::chrono::duration<int> seconds;
 
 void NatSwitch::init(Loader *loader, const Config& rootConfig)
 {
@@ -167,6 +170,7 @@ void NatSwitch::init(Loader *loader, const Config& rootConfig)
         unsigned int external_port = config_get(config, "external_port", 2);
         std::string nat_mac = config_get(config, "mac", "11:22:33:44:55:66");
         unsigned int nat_idle_timeout = config_get(config, "idle_timeout", 180);
+        unsigned int nat_hard_timeout = config_get(config, "hard_timeout", 1800);
 
         LOG(INFO) << "Need to start NAT switch at switch " << nat_dpid;
         LOG(INFO) << "Local port: " << local_port << ", external port: " << external_port;
@@ -234,7 +238,11 @@ void NatSwitch::init(Loader *loader, const Config& rootConfig)
                                 pkt.modify(oxm::ipv4_src() << mapTo.ip);
                                 pkt.modify(oxm::tcp_src() << mapTo.port);
 
-                                return decision.unicast(external_port).return_();
+                                return decision
+                                        .unicast(external_port)
+                                        .idle_timeout(seconds(nat_idle_timeout))
+                                        .hard_timeout(seconds(nat_hard_timeout))
+                                        .return_();
                         } else if (in_port == external_port) {
                                 // packet from external subnet
                                 LOG(INFO) << "Got PacketIn from external subnet " << ip_src << ":" << tcp_src;
@@ -245,14 +253,22 @@ void NatSwitch::init(Loader *loader, const Config& rootConfig)
                                 // drop it if mapping is empty
                                 if (mapTo.empty()) {
                                         LOG(INFO) << "Unknown connection; drop it";
-                                        return decision.drop().return_();
+                                        return decision
+                                                .drop()
+                                                .idle_timeout(seconds(nat_idle_timeout))
+                                                .hard_timeout(seconds(nat_hard_timeout))
+                                                .return_();
                                 } else {
                                         // if there's a mapping, apply it
                                         pkt.modify(oxm::eth_dst() << mapTo.mac);
                                         pkt.modify(oxm::ipv4_dst() << mapTo.ip);
                                         pkt.modify(oxm::tcp_dst() << mapTo.port);
 
-                                        return decision.unicast(local_port).return_();
+                                        return decision
+                                                .unicast(local_port)
+                                                .idle_timeout(seconds(nat_idle_timeout))
+                                                .hard_timeout(seconds(nat_hard_timeout))
+                                                .return_();
                                 }
                         } else {
                                 LOG(WARNING) << "Unknown packet port: " << in_port;
